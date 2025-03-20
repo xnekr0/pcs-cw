@@ -36,6 +36,9 @@ class LUConnectClient:
             print(f"Connection error: {e}")
             return False
 
+    # for user access handling on both login and registration
+    # constructs authentication request with credentials and action
+    # auth confirmation happens asynchronously via process_message
     def authenticate(self, username, password, is_register=False):
         # authenticate user on server
         action = "register" if is_register else "login"
@@ -44,6 +47,9 @@ class LUConnectClient:
         self.send_message(auth_data)
         # authentication handled in receive_messages
 
+    # core messaging protocol that serializes data with 4-byte length prefix
+    # this is for proper message framing. this ensures message boundaries are
+    # maintained in the TCP stream. USED IN ALL APP COMMUNICATIONS
     def send_message(self, message_dict):
         # send message to server with length_prefix
         try:
@@ -66,6 +72,9 @@ class LUConnectClient:
         }
         self.send_message(msg)
 
+    # handles incoming messages in separate thread
+    # reads both parts (length prefix then message body) to ensure complete messages
+    # maintains connection state and processes all server communication
     def receive_messages(self):
         # receive and process messages - loop
         while self.connected:
@@ -215,6 +224,7 @@ class ClientUI:
         self.client.status_callback = self.handle_status
         self.setup_ui()
 
+    # builds complete UI for the user to interact with the chatroom
     def setup_ui(self):
         # set-up client window
         # main window

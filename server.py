@@ -29,6 +29,11 @@ import os.path
 import bcrypt
 import sqlite3
 
+
+# connection_semaphore is an important component that controls concurrent access to the server
+# it limits the number of simultaneous active connections to 3
+# this ensures only 3 users can use the application at once
+# when semaphore is fully acquired, new connections are directed to wait queue
 class LUConnectServer:
     def __init__(self, host, port, max_connections=3):
         self.host = host
@@ -131,6 +136,10 @@ class LUConnectServer:
         if self.db_connection:
             self.db_connection.close()
 
+    # acceptconn handles initial connection logic and implements semaphore-based admission control
+    # it acquires the connection semaphore in non-blocking mode (blocking=False)
+    # if successful, client is connected
+    # if unsuccessful, client added to wait queue
     def acceptconn(self, client_socket, address):
         # accept connection and process data
         # print(f"Processing connection from {address}") DEBUG STATEMENT
@@ -762,6 +771,14 @@ class ClientHandler:
             self.send_message(error_msg)
 
 
+# important security measures
+# this class manages user registration and login verification
+# key security features:
+# passwords never stored in plaintext, only as bcrypt hashes
+# bcrypt automatically handles salt generation and storage within the hash
+# when verifying passwords, the plaintext attempt is hashed and compared with the stored hash
+# username uniqueness is enforced at database level
+# authentication flow separated from main server logic for code organization
 class AuthenticationHandler:
     # handle authentication
     def __init__(self, db_connection):
