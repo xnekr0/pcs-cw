@@ -1,3 +1,22 @@
+#SOURCES USED
+#https://martinxpn.medium.com/synchronizing-threads-in-python-with-semaphores-70-100-days-of-python-d6e4da203f3c
+#https://docs.python.org/3/library/sqlite3.html
+#https://pypi.org/project/bcrypt/
+#https://flet.dev/docs/tutorials/python-chat/
+#https://www.101computing.net/xor-encryption-algorithm/
+#xOR encryption also studied in Secure Cyber Systems Module
+#https://stackoverflow.com/questions/190010/daemon-threads-explanation
+#https://stackoverflow.com/questions/393554/python-sqlite3-and-concurrency
+#https://stackoverflow.com/questions/48924572/what-is-a-blocking-semaphore-in-java
+#https://docs.python.org/3/library/threading.html
+#https://docs.python.org/3/library/tk.html
+#https://www.youtube.com/watch?v=A_Z1lgZLSNc
+#https://stackoverflow.com/questions/76582258/send-bytes-in-json-format-to-the-server-in-socket-programming-python
+#https://docs.python.org/3/library/os.html
+#https://stackoverflow.com/questions/54598940/socket-chat-room-python-3-7
+#https://www.geeksforgeeks.org/multithreading-python-set-1/
+
+
 import socket
 import threading
 import time
@@ -9,7 +28,6 @@ import signal
 import os.path
 import bcrypt
 import sqlite3
-
 
 class LUConnectServer:
     def __init__(self, host, port, max_connections=3):
