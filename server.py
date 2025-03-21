@@ -42,6 +42,7 @@ class LUConnectServer:
         self.connection_semaphore = threading.Semaphore(max_connections)
         self.waiting_queue = []  # wait list dictionary
         self.active_clients = {}  # active client dictionary
+        self.queue_lock = threading.Lock()  # Add this line to create a lock
         # initialize database
         self.db_connection = self.initialize_db()
 
@@ -142,8 +143,6 @@ class LUConnectServer:
     # if unsuccessful, client added to wait queue
     def acceptconn(self, client_socket, address):
         # accept connection and process data
-        # print(f"Processing connection from {address}") DEBUG STATEMENT
-        # acquire semaphore
         if self.connection_semaphore.acquire(blocking=False):
             print(f"Client {address} connected - slot available")
             # handle client
@@ -156,15 +155,17 @@ class LUConnectServer:
                 "timestamp": time.time(),
                 "position": len(self.waiting_queue) + 1,
             }
-            self.waiting_queue.append(wait_entry)
-            print(
-                f"Client {address} added to waiting queue. Position: {len(self.waiting_queue)}"
-            )
+            with self.queue_lock:  # use lock when modifying queue
+                self.waiting_queue.append(wait_entry)
+                position = len(self.waiting_queue)
+
+            print(f"Client {address} added to waiting queue. Position: {position}")
+
             # notify client of position
             wait_msg = {
                 "type": "system",
-                "content": f"You are in position {len(self.waiting_queue)} in the waiting queue.",
-                "estimated_wait": f"{len(self.waiting_queue) * 5} minutes",  # Estimate 5 minutes per client
+                "content": f"You are in position {position} in the waiting queue.",
+                "estimated_wait": f"{position * 5} minutes",
                 "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
             try:
@@ -312,87 +313,90 @@ class LUConnectServer:
         print("Waiting queue manager started")
         while True:
             time.sleep(5)
-            if self.waiting_queue:
-                # update wait times
-                current_time = time.time()
-                for i, client in enumerate(self.waiting_queue):
-                    wait_time = current_time - client["timestamp"]
-                    position = i + 1
-                    client["position"] = position
-                    # update estimate wait time
-                    est_wait_minutes = position * 5  # Estimate of 5 mins per client
-                    update_msg = {
-                        "type": "system",
-                        "content": f"You are in position {position} in the waiting queue.",
-                        "estimated_wait": f"{est_wait_minutes} minutes",
-                        "elapsed_wait": f"{int(wait_time // 60)} minutes",
-                        "timestamp": datetime.datetime.now().strftime(
-                            "%Y-%m-%d %H:%M:%S"
-                        ),
-                    }
-                    try:
-                        client["socket"].send(json.dumps(update_msg).encode())
-                    # exception handling in case of disconnection
-                    except:
-                        pass
-                # remove disconnected clients
-                self.waiting_queue = [
-                    client
-                    for client in self.waiting_queue
-                    if client["socket"].fileno() != -1
-                ]
-                print(f"Clients in waiting queue: {len(self.waiting_queue)}")
+            with self.queue_lock:  # use lock when accessing queue
+                if self.waiting_queue:
+                    # update wait times
+                    current_time = time.time()
+                    disconnected_indices = []
+
+                    for i, client in enumerate(self.waiting_queue):
+                        wait_time = current_time - client["timestamp"]
+                        position = i + 1
+                        client["position"] = position
+                        # update estimate wait time
+                        est_wait_minutes = position * 5  # estimate of 5 mins per client
+                        update_msg = {
+                            "type": "system",
+                            "content": f"You are in position {position} in the waiting queue.",
+                            "estimated_wait": f"{est_wait_minutes} minutes",
+                            "elapsed_wait": f"{int(wait_time // 60)} minutes",
+                            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+                        try:
+                            client["socket"].send(json.dumps(update_msg).encode())
+                        except:
+                            # mark client for removal if disconnected
+                            disconnected_indices.append(i)
+
+                    # remove disconnected clients
+                    for i in sorted(disconnected_indices, reverse=True):
+                        try:
+                            del self.waiting_queue[i]
+                        except IndexError:
+                            pass  # in case queue was modified elsewhere
+
+                    print(f"Clients in waiting queue: {len(self.waiting_queue)}")
 
     def check_waitqueue(self):
         # check wait queue
-        if self.waiting_queue:
-            # acquire semaphore
-            if self.connection_semaphore.acquire(blocking=False):
-                # get next client
-                next_client = self.waiting_queue.pop(0)
-                print(
-                    f"Moving client {next_client['address']} from waiting queue to active connection"
-                )
-                # notify client that connecting
-                connect_msg = {
-                    "type": "system",
-                    "content": "A slot is now available. Connecting you to the server...",
-                    "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                }
-                try:
-                    next_client["socket"].send(json.dumps(connect_msg).encode())
-                # exception handling
-                except:
-                    # if failed, release semaphore try new client
-                    self.connection_semaphore.release()
-                    self.check_waitqueue()
-                    return
-                # handle client
-                threading.Thread(
-                    target=self.handleclient,
-                    args=(next_client["socket"], next_client["address"]),
-                    daemon=True,
-                ).start()
-                # update waitlist positions
-                for i, client in enumerate(self.waiting_queue):
-                    position = i + 1
-                    client["position"] = position
-                    update_msg = {
-                        "type": "system",
-                        "content": f"You moved up! You are now in position {position} in the waiting queue.",
-                        "estimated_wait": f"{position * 5} minutes",
-                        "timestamp": datetime.datetime.now().strftime(
-                            "%Y-%m-%d %H:%M:%S"
-                        ),
-                    }
+        with self.queue_lock:
+            if self.waiting_queue:
+                # acquire semaphore, if successful, process next client
+                if self.connection_semaphore.acquire(blocking=False):
                     try:
-                        client["socket"].send(json.dumps(update_msg).encode())
-                    # exception handling in case of disconnection
-                    except:
-                        pass
-            else:
-                # release semaphore
-                self.connection_semaphore.release()
+                        # get next client
+                        next_client = self.waiting_queue.pop(0)
+                        print(f"Moving client {next_client['address']} from waiting queue to active connection")
+
+                        # Notify client that connecting
+                        connect_msg = {
+                            "type": "system",
+                            "content": "A slot is now available. Connecting you to the server...",
+                            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+
+                        try:
+                            next_client["socket"].send(json.dumps(connect_msg).encode())
+                        except Exception as e:
+                            print(f"Error notifying client from waiting queue: {e}")
+                            self.connection_semaphore.release()  # release semaphore if unable to modify
+                            self.check_waitqueue()  # try with next client
+                            return
+
+                        # handle client in new thread
+                        threading.Thread(
+                            target=self.handleclient,
+                            args=(next_client["socket"], next_client["address"]),
+                            daemon=True,
+                        ).start()
+
+                        # update waitlist positions
+                        for i, client in enumerate(self.waiting_queue):
+                            position = i + 1
+                            client["position"] = position
+                            update_msg = {
+                                "type": "system",
+                                "content": f"You moved up! You are now in position {position} in the waiting queue.",
+                                "estimated_wait": f"{position * 5} minutes",
+                                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            }
+                            try:
+                                client["socket"].send(json.dumps(update_msg).encode())
+                            except:
+                                pass  # client might have disconnected
+                    except Exception as e:
+                        print(f"Error processing waiting queue: {e}")
+                        self.connection_semaphore.release()  # release if any issues
 
     def encrypt_data(self, data):
         # encrypt data
