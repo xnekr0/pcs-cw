@@ -598,7 +598,7 @@ class ClientHandler:
         # send to all clients
         self.server.broadcast_message(
             message, self.username
-        )  # Don't send back to sender
+        )
         # confirm status to sender
         status_msg = {
             "type": "message_status",
@@ -621,7 +621,7 @@ class ClientHandler:
             }
             self.send_message(error_msg)
             return
-        # ff allowed, prepare for transfer
+        # if allowed, prepare for transfer
         ack_msg = {
             "type": "file_transfer_ack",
             "file_id": str(uuid.uuid4()),
@@ -657,7 +657,7 @@ class ClientHandler:
         }
         self.server.broadcast_message(
             file_notification, None
-        )  # Notify everyone including sender
+        )  # notify everyone including sender
         # send system message to chat about file
         file_chat_msg = {
             "type": "system",
@@ -751,7 +751,7 @@ class ClientHandler:
                 "filename": filename,
                 "data": decrypted_data.decode(
                     "latin-1"
-                ),  # Convert bytes to string for JSON
+                ),  # convert bytes to string for JSON
                 "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
             self.send_message(file_msg)
@@ -812,9 +812,7 @@ class AuthenticationHandler:
             user_record = cursor.fetchone()
             if user_record:
                 stored_password = user_record[0]
-                print(
-                    f"Stored password hash for {username}: {stored_password}"
-                )  # Debug line
+                #print(f"Stored password hash for {username}: {stored_password}")  # DEBUG STATEMENT
                 # handle password
                 if isinstance(stored_password, bytes):
                     # if in bytes, use
